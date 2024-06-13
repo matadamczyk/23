@@ -5,6 +5,7 @@
 #include <wx/filedlg.h>
 #include <wx/image.h>
 #include <wx/bitmap.h>
+#include <wx/graphics.h >
 
 class GUIFrame : public wxFrame {
 public:
@@ -19,6 +20,8 @@ private:
     wxSlider* m_rotateSlider;
     wxButton* m_combineButton;
     wxStaticBitmap* m_squareBitmaps[5]; // Added array for five squares
+    double m_zoomFactor;     // Współczynnik powiększenia
+    double m_rotationAngle;  // Kąt obrotu w radianach
 
     wxRect m_selectionRect; // Rectangle for selecting the zoom area
     bool m_dragging;
@@ -35,6 +38,7 @@ private:
     void OnMouseMove(wxMouseEvent& event);
 
     wxBitmap CreateCompositeImage();
+    void UpdateImage();
     void UpdateSquares(); // Method to update the squares
     void UpdateSelectionRect(); // Method to update the selection rectangle
 

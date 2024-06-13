@@ -3,19 +3,19 @@
 #include "Utils.h"
 
 wxBEGIN_EVENT_TABLE(GUIFrame, wxFrame)
-EVT_MENU(ID_Open, GUIFrame::OnOpenFile)
-EVT_MENU(ID_Save, GUIFrame::OnSaveFile)
-EVT_SLIDER(ID_Zoom, GUIFrame::OnZoom)
-EVT_SLIDER(ID_Rotate, GUIFrame::OnRotate)
-EVT_BUTTON(ID_Combine, GUIFrame::OnCombine)
-EVT_PAINT(GUIFrame::OnPaint)
-EVT_LEFT_DOWN(GUIFrame::OnLeftDown)
-EVT_LEFT_UP(GUIFrame::OnLeftUp)
-EVT_MOTION(GUIFrame::OnMouseMove)
+    EVT_MENU(ID_Open, GUIFrame::OnOpenFile)
+    EVT_MENU(ID_Save, GUIFrame::OnSaveFile)
+    EVT_SLIDER(ID_Zoom, GUIFrame::OnZoom)
+    EVT_SLIDER(ID_Rotate, GUIFrame::OnRotate)
+    EVT_BUTTON(ID_Combine, GUIFrame::OnCombine)
+    EVT_PAINT(GUIFrame::OnPaint)
+    EVT_LEFT_DOWN(GUIFrame::OnLeftDown)
+    EVT_LEFT_UP(GUIFrame::OnLeftUp)
+    EVT_MOTION(GUIFrame::OnMouseMove)
 wxEND_EVENT_TABLE()
 
 GUIFrame::GUIFrame(const wxString& title, const wxPoint& pos, const wxSize& size)
-    : wxFrame(NULL, wxID_ANY, title, pos, size), m_dragging(false) {
+    : wxFrame(NULL, wxID_ANY, title, pos, size), m_dragging(false), m_rotationAngle(0.0), m_zoomFactor(1.0) {
 
     wxMenu* menuFile = new wxMenu;
     menuFile->Append(ID_Open, "&Open...\tCtrl-O");
@@ -43,16 +43,17 @@ GUIFrame::GUIFrame(const wxString& title, const wxPoint& pos, const wxSize& size
     m_combineButton = new wxButton(m_panel, ID_Combine, "Combine Transformations");
     m_sizer->Add(m_combineButton, 0, wxALL | wxCENTER, 5);
 
-    m_bitmap = new wxStaticBitmap(m_panel, wxID_ANY, wxBitmap());
+    m_bitmap = new wxStaticBitmap(m_panel, wxID_ANY, wxNullBitmap);
     m_sizer->Add(m_bitmap, 1, wxEXPAND | wxALL, 5);
 
-    // Add five squares at the bottom
-    wxBoxSizer* squaresSizer = new wxBoxSizer(wxHORIZONTAL);
+    // Pięć kwadratów na dole
+    wxGridSizer* squaresSizer = new wxGridSizer(2, 3, 5, 5); // 2 wiersze, 3 kolumny
     for (int i = 0; i < 5; ++i) {
-        m_squareBitmaps[i] = new wxStaticBitmap(m_panel, wxID_ANY, wxBitmap(100, 100));
-        squaresSizer->Add(m_squareBitmaps[i], 1, wxALL | wxEXPAND, 5);
+        m_squareBitmaps[i] = new wxStaticBitmap(m_panel, wxID_ANY, wxNullBitmap);
+        squaresSizer->Add(m_squareBitmaps[i], 1, wxEXPAND | wxALL, 5);
     }
-    m_sizer->Add(squaresSizer, 0, wxALL | wxEXPAND, 5);
+    squaresSizer->Add(new wxStaticText(m_panel, wxID_ANY, ""), 1, wxEXPAND); // Puste pole
+    m_sizer->Add(squaresSizer, 0, wxEXPAND | wxALL, 5);
 
     m_selectionRect = wxRect(0, 0, 50, 50); // Initial selection rectangle
 }
@@ -82,29 +83,17 @@ void GUIFrame::OnSaveFile(wxCommandEvent& event) {
 }
 
 void GUIFrame::OnZoom(wxCommandEvent& event) {
-    int zoomFactor = m_zoomSlider->GetValue();
-    wxImage zoomedImage = ResizeImage(m_image, m_image.GetWidth() * zoomFactor / 100, m_image.GetHeight() * zoomFactor / 100);
-    m_bitmap->SetBitmap(wxBitmap(zoomedImage));
-    UpdateSquares(); // Update squares when zoom changes
-    m_panel->Refresh();
+    m_zoomFactor = m_zoomSlider->GetValue() / 100.0;
+    UpdateImage();
 }
 
 void GUIFrame::OnRotate(wxCommandEvent& event) {
-    int angle = m_rotateSlider->GetValue();
-    wxImage rotatedImage = RotateImage(m_image, wxDegToRad(angle));
-    m_bitmap->SetBitmap(wxBitmap(rotatedImage));
-    UpdateSquares(); // Update squares when rotation changes
-    m_panel->Refresh();
+    m_rotationAngle = wxDegToRad(m_rotateSlider->GetValue());
+    UpdateImage();
 }
 
 void GUIFrame::OnCombine(wxCommandEvent& event) {
-    int zoomFactor = m_zoomSlider->GetValue();
-    int angle = m_rotateSlider->GetValue();
-    wxImage transformedImage = ResizeImage(m_image, m_image.GetWidth() * zoomFactor / 100, m_image.GetHeight() * zoomFactor / 100);
-    transformedImage = RotateImage(transformedImage, wxDegToRad(angle));
-    m_bitmap->SetBitmap(wxBitmap(transformedImage));
-    UpdateSquares(); // Update squares when combined transformation is applied
-    m_panel->Refresh();
+    UpdateImage();
 }
 
 void GUIFrame::OnPaint(wxPaintEvent& event) {
@@ -168,15 +157,68 @@ wxBitmap GUIFrame::CreateCompositeImage() {
     return compositeBitmap;
 }
 
+void GUIFrame::UpdateImage() {
+    if (!m_image.IsOk()) return;
+
+    // Obliczanie nowych wymiarów i przesunięcia dla powiększenia i obrotu
+    double centerX = m_image.GetWidth() / 2.0;
+    double centerY = m_image.GetHeight() / 2.0;
+    double newWidth = m_image.GetWidth() * m_zoomFactor;
+    double newHeight = m_image.GetHeight() * m_zoomFactor;
+    double offsetX = (newWidth - m_image.GetWidth()) / 2.0;
+    double offsetY = (newHeight - m_image.GetHeight()) / 2.0;
+
+    wxAffineMatrix2D matrix;
+    matrix.Translate(-centerX, -centerY);    // Przesunięcie do środka
+    matrix.Rotate(m_rotationAngle);         // Obrót
+    matrix.Scale(m_zoomFactor, m_zoomFactor); // Skalowanie
+    matrix.Translate(centerX, centerY);    // Przesunięcie z powrotem
+
+    // Tworzenie nowego obrazu i rysowanie z transformacją
+    wxImage transformedImage(newWidth, newHeight);
+    wxBitmap transformedBitmap(transformedImage);
+    {
+        wxGraphicsContext* gc = wxGraphicsContext::Create(wxMemoryDC(transformedBitmap));
+        wxGraphicsMatrix matrix; // Utworzenie obiektu wxGraphicsMatrix
+        matrix.Translate(-centerX, -centerY);    // Przesunięcie do środka
+        matrix.Rotate(m_rotationAngle);         // Obrót
+        matrix.Scale(m_zoomFactor, m_zoomFactor); // Skalowanie
+        matrix.Translate(centerX, centerY);    // Przesunięcie z powrotem
+        gc->SetTransform(matrix); // Przekazanie obiektu wxGraphicsMatrix
+        gc->DrawBitmap(m_image, -offsetX, -offsetY, m_image.GetWidth(), m_image.GetHeight());
+        delete gc;
+    }
+
+    m_bitmap->SetBitmap(wxBitmap(transformedImage));
+    UpdateSquares();
+}
+
 void GUIFrame::UpdateSquares() {
     if (!m_image.IsOk()) return;
 
     int squareSize = 100; // Size of the square bitmaps
-    wxRect selectionRect(0, 0, squareSize / 2, squareSize / 2); // Adjust this for the selection frame
 
-    wxImage selectedArea = m_image.GetSubImage(selectionRect);
+    // Get the transformed image from the main bitmap
+    wxBitmap currentBitmap = m_bitmap->GetBitmap();
+    wxImage transformedImage = currentBitmap.ConvertToImage();
+
+    // Calculate the center of the transformed image
+    int centerX = transformedImage.GetWidth() / 2;
+    int centerY = transformedImage.GetHeight() / 2;
+
+    // Calculate the selection rectangle based on the center and square size
+    wxRect selectionRect(centerX - squareSize / 4, centerY - squareSize / 4, squareSize / 2, squareSize / 2);
+
+    // Ensure the selection rectangle is within the image bounds
+    if (selectionRect.GetLeft() < 0) selectionRect.SetLeft(0);
+    if (selectionRect.GetTop() < 0) selectionRect.SetTop(0);
+    if (selectionRect.GetRight() > transformedImage.GetWidth()) selectionRect.SetRight(transformedImage.GetWidth());
+    if (selectionRect.GetBottom() > transformedImage.GetHeight()) selectionRect.SetBottom(transformedImage.GetHeight());
+
+    wxImage selectedArea = transformedImage.GetSubImage(selectionRect);
+
+    // Update the square bitmaps with the selected area and interpolated images
     m_squareBitmaps[0]->SetBitmap(wxBitmap(selectedArea.Scale(squareSize, squareSize, wxIMAGE_QUALITY_NORMAL)));
-
     m_squareBitmaps[1]->SetBitmap(wxBitmap(HermiteInterpolation(selectedArea).Scale(squareSize, squareSize)));
     m_squareBitmaps[2]->SetBitmap(wxBitmap(MitchellInterpolation(selectedArea).Scale(squareSize, squareSize)));
     m_squareBitmaps[3]->SetBitmap(wxBitmap(BSplineInterpolation(selectedArea).Scale(squareSize, squareSize)));
